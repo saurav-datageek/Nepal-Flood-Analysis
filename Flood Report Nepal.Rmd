@@ -1,0 +1,215 @@
+---
+title: "Flood Report Nepal"
+output: html_document
+---
+
+<br>
+
+#### Introduction ####
+
+
+For a small landlocked country sandwiched between the Himalayas and the plains of India, Nepal suffers a lot from Flood and Landslide, mostly during the Monsoon season. This notebook will try to
+analyse a dataset related to Flood and Landslide to identify the most affected regions (districts) of Nepal. 
+
+<br>
+
+#### Dataset ####
+
+The dataset is obtained from a government portal (https://bipadportal.gov.np) that has valuable information about Disasters in Nepal across the last ten years (2011 to date). It contains incidents related to Flood and Landlislide (our main variables of interest) along with other disaster-related incidents. The best part about the dataset is that it has observations across all 77 Districts of Nepal. 
+
+I will highlight the general information about the Dataset below: 
+
+* The whole dataset has 27904 Observations and 32 Features. 
+
+* The Observations related to Flood and Landslides are 4147.
+
+* Features comprise of information ranging from Type of Hazard, Incident Date, Affected region (Province, District, Municipality, Ward), Total Estimated Loss, Total Life Death (Gender Wise), Total Missing People (Gender Wise), Total Disabled People Death, Total Disabled People Missing, etc. 
+
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+
+
+remove(list = ls())
+
+setwd("~/Desktop/Nepal Flood Report")
+
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(rgdal) # For Nepal Map 
+library(DT)
+
+
+df <- read.csv("bipad.csv",stringsAsFactors = FALSE)
+datatable(head(df,3))
+
+```
+
+Let us first look at the frequency of several hazards across Nepal. 
+
+<br>
+
+#### Hazard Frequency ####
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+df_hazard_frequency <- as.data.frame(table(df$Hazard))
+colnames(df_hazard_frequency) <- c("Hazard","Frequency")
+arrange(df_hazard_frequency,desc(Frequency)) %>% datatable(df_hazard_frequency)
+
+```
+
+As we see, the dataset contains information about several hazards ranging from Fire to Snake Bite. 
+
+The Variable of interest in our current project is Flood related. So, we will select observations only related to Flood first. 
+
+For now,  we will focus on only two variabels only: 
+
+* Two Incident of Flood   
+
+* Total Deaths due to Flood 
+
+(The variables related to Economy like Total Estimated Loss or Total Infrastructure Loss are either Not Available or 0.)
+
+Also, we will perform our analysis at district Level. Therefore, we will group our dataset on the basis of districts and sum total incidents and deaths for each individual districts. 
+
+The top 10 districts with the highest number of Flood related incidents and deaths are tabulated below. 
+
+<br>
+
+#### Top 10 Districts with maximum Flood related incidents #### 
+
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+df_selected <- filter(df, Hazard %in% c("Flood"))
+df_selected$Count <- 1
+
+df_cluster <- as.data.frame(group_by(df_selected, District) %>% summarise(sum(Count), sum(Total...People.Death)))
+colnames(df_cluster) <- c("District","Total_Incident","Total_Death")
+datatable(arrange(df_cluster[,c(1,2)],desc(Total_Incident)))
+
+#arrange(df_cluster, desc(Total_Incident)) %>% datatable(df_cluster[,c(1,2)]) # Top 10 Districts with maximum Total_Incident 
+```
+
+#### Top 10 Districts with maximum Flood related deaths ###
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+
+datatable(arrange(df_cluster[,c(1,3)],desc(Total_Death))) # Top 10 Districts with maximum Total_Death 
+
+```
+
+
+<br>
+
+Next up, we will try to cluster the total districts of Nepal to see if we can find distinct groups depending on the total Flood related incidents and Deaths. 
+
+We will use K-Means algorithm to find the clusters of districts. But before that, we will use the Elbow-Method to find the appropriate number of clusters.
+
+<br>
+
+#### K-Means Clustering and Elbow-Method #### 
+
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+
+df_cluster_scaled <- scale(df_cluster[,c(2,3)])
+
+
+k.max <- 10
+total_wss <- c()
+
+for (k in 1:k.max) {
+  total_wss <- c(total_wss, kmeans(df_cluster_scaled, k, iter.max = 10 )$tot.withinss)
+}
+
+
+
+```
+
+![](Elbow Method - Flood Only.png){width=500px}
+
+<br>
+
+As we see from the plot above, the total loss of algorithm is somewhat similar after K=3. Therefore, we will find 3 Clusters in our dataset. 
+
+To make the Cluster more informative, we will give 3 text labels to the cluster numbers on the basis of severity of incidents and deaths. With the 3 assigned labels being: 
+
+1. Least Affected
+2. Moderately Affected
+3. Most Affected 
+
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+cluster_model <- kmeans(df_cluster_scaled, centers=3, iter.max = 10)
+cluster_model$centers
+table(cluster_model$cluster)
+df_cluster$Cluster_Number <- cluster_model$cluster
+
+```
+
+
+```{r, warning=FALSE, echo=FALSE, eval=TRUE, message=FALSE}
+df_cluster$Cluster_Label <- ifelse(df_cluster$Cluster_Number == 1, "Least Affected",
+                              ifelse(df_cluster$Cluster_Number == 2, "Moderately Affected", "Most Affected"
+                                     ))
+
+```
+
+<br>
+
+Next up, we will visualise the Clusters in a Scatter Plot created with Total Incidents and Total Deaths in X and Y axis respectively. 
+
+As we see, the districts highlighted in blue are the most affected districts. 
+
+<br>
+
+#### Scatter Plot of Total Incidents vs Total Deaths with Cluster Labels #### 
+
+![](Scatter Plot Cluster.png){width=1000px}
+
+<br>
+
+Since we are trying to visualize the most affected regions and districts, the visual would capture more information if conveyed through the actual map of Nepal. Therefore, we will next visualise the clusters in map of Nepal below: 
+
+<br>
+
+#### Flood Affected Districts of Nepal ####
+
+
+![](Flood Only Report.png){width=1000px}
+
+<br>
+
+As we see, most of the heavily affected districts (in blue) lie on the plain Terai region of Nepal. And yet, there are substantial amount of districts in Hilly region that are also moderately affected (in green). 
+
+The Hilly region of Nepal is mostly affected by landslide than Flood alone. Therefore, next we will replicate the same process till now to find possible clusters of Districts on the basis of Flood and Landslide information. 
+
+<br>
+
+#### Adding Landslide into the equation with Flood ####
+
+![](Landslide and Flood Report.png){width=1000px}
+<br>
+
+As we see, the most affected districts are now influenced by the Hilly Region districts. The district Sindhupalchowk, for example, was found to be the most affected district with highest number of deaths related to Flood and Landslide. 
+
+Just to confirm further how strongly associated Landslide is to Hilly Regions in Nepal, we will now select dataset only related to Landslide and again identify the possible clusters. 
+
+<br>
+
+#### Taking only Landslide observations  #### 
+
+![](Landslide Report.png){width=1000px}
+
+As expected, most of the Most Affected (and More Affected districts) lie on the Hilly Region.
+
+<br>
+
+#### Conclusion #### 
+
+As we have seen, the 77 districts in Nepal can be grouped into different clusters depending upon the number of Flood and Landslide related Incidents and Deaths. Grouping districts into separate clusters can give us a better picture of overall Flood and Landslide situation in Nepal. 
+
+Hopefully, the insight about the possible clusters can aid us in our current work in creating a  Collective Crisis Intelligence to deal with any disaster management and relief programs in the future.
+
+
+
